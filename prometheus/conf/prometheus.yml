@@ -1,0 +1,33 @@
+global:
+  scrape_interval:     15s # 默认每15秒采集一次
+  external_labels:
+    monitor: 'go-micro-monitor'
+
+alerting:
+  alertmanagers:
+  - static_configs:
+    - targets:
+      # - alertmanager:9093
+
+scrape_configs:
+  # Prometheus 监控配置
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['docker-prometheus:9090']
+
+  #监控的服务
+  - job_name: 'order'  #名称
+    scrape_interval: 5s   #覆盖默认值，设置5秒一次
+    static_configs:
+      - targets: ['172.28.194.74:9092']  #设置监控地址
+
+  - job_name: 'mysqld-exporter-server1'
+    scrape_interval: 5s  #覆盖默认值，设置5秒一次
+    static_configs:
+      - targets: ['mysqld-exporter-server1:9104']  #设置监控地址
+  
+  - job_name: 'hystrix'
+    metrics_path: /hystrix.stream
+    scrape_interval: 1s 
+    static_configs:
+      - targets: ['172.28.194.74:9096']

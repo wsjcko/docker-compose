@@ -1,0 +1,165 @@
+#声明版本
+version: '3'
+#定义服务
+services:
+    #注册中心，在同一个网络内按照名称访问
+    consul:
+      #指定容器名称
+      container_name: docker-consul
+      #镜像地址
+      image: consul:latest
+      #容器映射端口
+      ports:
+        - "8500:8500"
+      
+    #链路追踪，在同一个网络内按照名称访问    
+    jaeger:
+      #指定容器名称
+      container_name: docker-jaeger
+      #镜像地址
+      image: jaegertracing/all-in-one:latest
+      #容器映射端口
+      ports:
+      - "5775:5775/udp"
+      - "6831:6831/udp"
+      - "6832:6832/udp"
+      - "5778:5778"
+      - "16686:16686"
+      - "14268:14268"
+      - "9411:9411"
+
+    #熔断器看板
+    hystrix-dashboard:
+      #指定容器名称
+      container_name: docker-hystrix
+      #镜像地址
+      image: mlabouardy/hystrix-dashboard:latest
+      #容器映射端口
+      ports:
+        - "9002:9002"
+
+    #性能监控
+    prometheus:
+      #指定容器名称
+      container_name: docker-prometheus
+      #镜像地址
+      image: prom/prometheus:latest
+      #数据卷，-v,外部yml文件挂载到容器中
+      volumes:
+        - ./prometheus/conf/prometheus.yml:/etc/prometheus/prometheus.yml
+        - ./prometheus/data:/prometheus
+      #容器映射端口
+      ports:
+        - "9090:9090"
+      command:
+        - '--storage.tsdb.path=/prometheus'     # 指定 tsdb 存储路径
+        - '--web.enable-lifecycle'    # 允许通过发送 HTTP POST 请求的方式热加载配置文件 `curl -X POST [http://IP/-/reload](http://ip/-/reload)`
+        - '--enable-feature=remote-write-receiver'    # 启用试验性功能 remote-write-receiver
+        - '--web.console.libraries=/usr/share/prometheus/console_libraries'    # 指定页面组件存储路径
+        - '--web.console.templates=/usr/share/prometheus/consoles'    # 指定页面存储路径
+
+    prometheus-agent:
+      #指定容器名称
+      container_name: docker-prometheus-agent
+      #镜像地址
+      image: prom/prometheus:latest
+      volumes:
+        - ./prometheus-agent/data:/prometheus
+        - ./prometheus-agent/conf:/etc/prometheus
+      command:
+        - '--config.file=/etc/prometheus/prometheus.yml'
+        - '--web.enable-lifecycle'
+        - '--enable-feature=agent'    # 启用试验性功能 agent
+        - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+        - '--web.console.templates=/usr/share/prometheus/consoles'
+
+    #监控看板
+    grafana:
+      #指定容器名称
+      container_name: docker-grafana
+      #镜像地址
+      image: grafana/grafana:latest
+      #容器映射端口
+      ports:
+        - "3000:3000"
+      environment:
+      # 配置 Grafana 的默认根 URL。
+      #   - GF_SERVER_ROOT_URL=http://192.168.100.107:20002
+      # 配置 Grafana 的默认 admin 密码。
+        - GF_SECURITY_ADMIN_PASSWORD=admin12345
+      # 映射 Grafana 的数据文件，方便后面进行更改。
+      volumes:
+        - /data/grafana:/var/lib/grafana
+
+    #mysqld监控插件
+    mysqld-exporter:
+      #指定容器名称
+      container_name: mysqld-exporter-server1
+      #镜像地址
+      image: prom/mysqld-exporter:latest
+      #容器映射端口
+      ports:
+       - "9104:9104"
+      #容器环境变量  给exporter:123456 设置密码，授权
+      environment:
+        - DATA_SOURCE_NAME="exporter:123456@(mysql-server1:3306)/"
+
+    #安装mysql
+    mysql:
+      container_name: mysql-server1
+      # restart: always
+
+      #镜像地址
+      image: mysql:latest
+      #容器映射端口
+      ports:
+        - "3306:3306"
+      #容器环境变量
+      environment:
+      - MYSQL_ROOT_PASSWORD=sjc123456
+      - TZ=Asia/Shanghai
+      - MYSQL_USER=exporter
+      - MYSQL_PASS=123456
+      - LANG="zh_CN.UTF-8"
+      - LANGUAGE="zh_CN:zh"
+      - LC_ALL="zh_CN.utf8"
+      #数据，配置
+      volumes:
+        - /data/mysql/conf:/etc/mysql
+        - /data/mysql/data:/var/lib/mysql
+
+      command:
+        --default-authentication-plugin=mysql_native_password
+        --character-set-server=utf8mb4
+        --collation-server=utf8mb4_general_ci
+        --explicit_defaults_for_timestamp=true
+        --lower_case_table_names=1   
+        --secure_file_priv=/var/lib/mysql
+        --sql-mode=ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+        --max_allowed_packet=128M
+      # entrypoint: /script-mysql_exporter.sh
+      build:
+        context: .
+        args:
+          - buildno=1
+          - password=secret
+
+  # 这里如果需要连接外部 MySQL 就需要处在同一个网络。docker create network  mysql-monitor 默认brige ,--driver brige
+#建立一个监控用的 Docker 网络
+networks:
+  default:
+    external:
+      name: mysql-monitor
+
+
+
+# volumes: 对应的目录和文件都要存在
+#docker-compose -f ./docker-compose.yml -p MySQL-Monitor up -d
+
+
+## mysql command: --lower_case_table_names=1    如果出现Different lower_case_table_names settings for server ('1') and data dictionary ('0').
+## 数据污染，删除后重新创建 或者更换一下 /data/www/mysql/conf:/etc/mysql  目录/data/www/mysql/conf
+
+### mysql8 已经指定了用户，直接授权
+# GRANT PROCESS, REPLICATION CLIENT, SELECT ON *.* TO 'exporter'@'%';
+# flush privileges;
